@@ -1,4 +1,5 @@
 import subprocess
+import time
 import tkinter
 from tkinter import ttk
 import minecraft_launcher_lib
@@ -10,6 +11,9 @@ import psutil
 from tkinter.filedialog import askdirectory
 import download
 import os
+import sys
+
+downloadwindow = None
 
 # 获取剩余内存（M）
 RAM = psutil.virtual_memory()
@@ -23,11 +27,19 @@ window.title('Minecraft Python Launcher')
 window.geometry("600x400")
 # 设置能不能改变长和宽
 window.resizable(False, False)
-# 图标
-dir = os.getcwd()
-window.iconbitmap(dir + "\\picture\\ico.ico")
 
-minecraft_directory = ""
+
+def get_path(relative_path):
+    try:
+        base_path = sys._MEIPASS  # pyinstaller打包后的路径
+    except AttributeError:
+        base_path = os.path.abspath(".")  # 当前工作目录的路径
+
+    return os.path.normpath(os.path.join(base_path, relative_path))  # 返回实际路径
+
+window.iconbitmap(get_path("picture/ico.ico"))
+
+minecraft_directory = ".minecraft"
 install_version = "1.17"
 start_version = None
 screen = "main"
@@ -71,17 +83,15 @@ try:
 
 except:
     # 如果读取不了ini，那就创建一个
-    try:
-        conf.add_section("MPL")
-        conf.set("MPL", "Player_Name", "")
-        conf.set("MPL", "JVM", "1024")
-        conf.set("MPL", "Java_Path", "")
-        conf.set("MPL","Minecraft_directory",".minecraft")
-        VersionDir.insert(minecraft_directory)
-        # 进行操作
-        conf.write(open("MPL.ini", "w"))
-    except:
-        pass
+    conf.add_section("MPL")
+    conf.set("MPL", "Player_Name", "")
+    conf.set("MPL", "JVM", "1024")
+    conf.set("MPL", "Java_Path", "")
+    conf.set("MPL","Minecraft_directory",".minecraft")
+    VersionDir.insert(0, minecraft_directory)
+    # 进行操作
+    conf.write(open("MPL.ini", "w"))
+
 i = 0
 
 # 标题
@@ -101,18 +111,18 @@ def showimage(img_file):
 
 
 # 展示初始图片
-showimage(dir + "\\picture\\icon.png")
+showimage(get_path("picture/icon.png"))
 
 
 # 启动游戏：
 def game_run(minecraft_directory, start_version, options):
     # 切换图片展示
-    showimage(dir + "\\picture\\qidong.gif")
+    showimage(get_path("picture/qidong.gif"))
     # 启动游戏
     main.start_minecraft(minecraft_directory, start_version, options)
     # 游戏结束了，换回图片
     if screen != "main":
-        showimage(dir + "\\picture\\icon.png")
+        showimage(get_path("picture/icon.png"))
     else:
         pass
 
@@ -142,6 +152,11 @@ def StartbuttonChick():
         except:
             main.messageboxwrong("错误","你没有选择要启动的版本！")
             return
+        if not Player_Name:
+            main.messageboxwrong("错误", "你没有填写玩家名")
+            return
+        else:
+            pass
         i += 1
         #minecraft_directory = eval(repr(minecraft_directory).replace('/', '\\'))
         # 设置启动选项
@@ -218,7 +233,7 @@ def AllOptionsCilck():
         VersionsButton.place_forget()
         VersionDir.place_forget()
         screen = "main"
-        showimage("picture/icon.png")
+        showimage(get_path("picture/icon.png"))
 
         # 主页面显示
         place_main_screen()
@@ -287,10 +302,59 @@ def apply_all_options():
         conf.write(open("MPL.ini", "w"))
         main.messageboxwrong("成功", "应用设置成功")
 
+
+########################################################################################################################
+########################################################################################################################
+########################################################################################################################
+# copy from https://minecraft-launcher-lib.readthedocs.io/
+
+current_max = 0
+
+def set_status(status: str):
+    print(status)
+
+def set_progress(progress: int):
+    if current_max != 0:
+        print(f"{progress}/{current_max}")
+
+def set_max(new_max: int):
+    global current_max
+    current_max = new_max
+
+callback = {
+    "setStatus": set_status,
+    "setProgress": set_progress,
+    "setMax": set_max
+}
+
+
+def minecraft_install(version, minecraft_directory):
+    minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_directory, callback=callback)
+    main.messageboxwrong("成功", "安装完成，请手动关闭下载页面")
+    return
+
+
+########################################################################################################################
+########################################################################################################################
+########################################################################################################################
+
+
 def minecraft_install_windows(download_version,minecraft_directory):
-    downing_thread = Thread(target=download.minecraft_install,args=(download_version,minecraft_directory))
+    downloadwindow = tkinter.Tk()
+    downloadwindow.title('下载中...')
+    downloadwindow.geometry("250x200")
+    downloadwindow.resizable(False, False)
+    downloadwindow_label = tkinter.Label(downloadwindow, text="下载中...", font=("Arial", 15), bg="#426D90", fg="white", width=20)
+    downloadwindow_label.pack()
+    downloadwindow_text = tkinter.Text(downloadwindow)
+    main.redirect_stdout_to_tkinter(downloadwindow_text)
+    downloadwindow_text.pack()
+    downing_thread = Thread(target=minecraft_install,args=(download_version, minecraft_directory))
     downing_thread.start()
-    downing_messagebox_Thread = Thread(target=main.messageboxwrong("安装中...","请稍等"))
+    downloadwindow.mainloop()
+    #download.minecraft_install(download_version,minecraft_directory)
+
+    #downloadwindow.quit()
 
 
 def DownloadButtonCilck():
@@ -328,27 +392,33 @@ DownloadList = tkinter.Listbox(window, width=23, height=13)
 DownloadListLabel = tkinter.Label(window, text="下载列表(刚下载的版本找不到请重启)：")
 DownloadButtun = tkinter.Button(window, text="点击下载该版本", command=DownloadButtonCilck)
 
-def version_list_len(VersionsList, versionlistlen, minecraft_directory):
-    versionlistlen = 0
-    VersionsList.delete(0, "end")
-    while versionlistlen < len(minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory=minecraft_directory)):
-        VersionsList.insert(versionlistlen, minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory=minecraft_directory)[versionlistlen]["id"])
-        versionlistlen = versionlistlen + 1
+def version_list_len():
+    global VersionsList
+    global versionlistlen
+    global minecraft_directory
+    for i in range(2):
+        versionlistlen = 0
+        VersionsList.delete(0, "end")
+        while versionlistlen < len(minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory=minecraft_directory)):
+            VersionsList.insert(versionlistlen, minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory=minecraft_directory)[versionlistlen]["id"])
+            versionlistlen = versionlistlen + 1
+        print(111)
+    #time.sleep(2)
 
 # 刷新列表
-refreshButton = tkinter.Button(window, text="刷新列表", command=version_list_len(VersionsList, versionlistlen, minecraft_directory))
+refreshButton = tkinter.Button(window, text="刷新列表", command=version_list_len())
+
 def download_list_len(DownloadList, downloadlistlen):
     while downloadlistlen < len(minecraft_launcher_lib.utils.get_version_list()):
         DownloadList.insert(downloadlistlen, minecraft_launcher_lib.utils.get_version_list()[downloadlistlen]["id"])
         downloadlistlen = downloadlistlen + 1
 
 if __name__ == '__main__':
-    version_list_len(VersionsList, versionlistlen, minecraft_directory)
+    version_list_len()
 
     download_list_len_thread = Thread(target=download_list_len, args=(DownloadList, downloadlistlen))
     download_list_len_thread.daemon = True
     download_list_len_thread.start()
-
     # 主页面显示
     place_main_screen()
     window.mainloop()
